@@ -37,6 +37,6 @@ jobs:
       - name: Execute tests
         run: vendor/bin/phpunit --verbose
         env:
-          BRAINTREE_KEY: ${{ secrets.BRAINTREE_KEY }}
-          BRAINTREE_SECRET: ${{ secrets.BRAINTREE_SECRET }}
-          BRAINTREE_MERCHANT_KEY: ${{ secrets.BRAINTREE_MERCHANT_KEY }}
+          BRAINTREE_KEY: "2xc4swfpyqn9d9t6"
+          BRAINTREE_SECRET: "911be660a9a61f3661fbcefcf743aea7"
+          BRAINTREE_MERCHANT_KEY: "3t245pym6xm9ts2c"
