@@ -9,9 +9,12 @@ use LogicException;
 use InvalidArgumentException;
 use Illuminate\Database\Eloquent\Model;
 use Braintree\Subscription as BraintreeSubscription;
+use Laravel\Braintree\Concerns\Prorates;
 
 class Subscription extends Model
 {
+    use Prorates;
+    
     /**
      * The attributes that aren't mass assignable.
      *
@@ -347,7 +350,7 @@ class Subscription extends Model
 
         $plan = BraintreeService::findPlan($plan);
 
-        if ($this->wouldChangeBillingFrequency($plan) && $this->prorate) {
+        if ($this->wouldChangeBillingFrequency($plan) && $this->prorateBehavior()) {
             return $this->swapAcrossFrequencies($plan);
         }
 
@@ -359,14 +362,14 @@ class Subscription extends Model
             'neverExpires' => true,
             'numberOfBillingCycles' => null,
             'options' => [
-                'prorateCharges' => $this->prorate,
+                'prorateCharges' => $this->prorateBehavior(),
             ],
         ]);
 
         $addOnQuantity = collect($response->subscription->addOns)
             ->filter(fn ($addon) => $addon['id'] === $plan->id.'-quantity')
             ->first();
-
+        
         if ($response->success) {
             $this->fill([
                 'braintree_status' => $response->subscription->status,
@@ -450,7 +453,7 @@ class Subscription extends Model
     {
         return (object) [
             'amount' => $plan->price,
-            'numberOfBillingCycles' => floor(
+            'numberOfBillingCycles' => round(
                 $this->moneyRemainingOnYearlyPlan($currentPlan) / $plan->price
             ),
         ];

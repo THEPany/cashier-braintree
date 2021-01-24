@@ -16,8 +16,6 @@ class SubscriptionsTest extends FeatureTestCase
         // Create Subscription
         $user->newSubscription('main', static::$planId)->create('fake-valid-visa-nonce');
 
-        $user->refresh();
-
         $this->assertEquals(1, count($user->subscriptions));
         $this->assertNotNull($user->subscription('main')->braintree_id);
 
@@ -74,7 +72,7 @@ class SubscriptionsTest extends FeatureTestCase
 
         $this->assertEquals(1, $subscription->quantity);
 
-        // Swap Plan
+        // Swap Plan and invoice immediately.
         $subscription->swap(static::$otherPlanId);
 
         $this->assertEquals(static::$otherPlanId, $subscription->braintree_plan);
@@ -90,6 +88,19 @@ class SubscriptionsTest extends FeatureTestCase
         $this->assertInstanceOf(Carbon::class, $invoice->date());
     }
 
+    public function test_swapping_subscription_with_coupon()
+    {
+        $user = $this->createCustomer('swapping_subscription_with_coupon');
+        $user->newSubscription('main', static::$planId)->create('fake-valid-visa-nonce');
+        $subscription = $user->subscription('main');
+
+        $subscription
+            ->swap(static::$otherPlanId)
+            ->applyCoupon(static::$couponId);
+
+        $this->assertEquals(static::$couponId, collect($subscription->asBraintreeSubscription()->discounts)->first()->id);
+    }
+
     public function test_creating_subscription_with_coupons()
     {
         $user = $this->createCustomer();
@@ -99,8 +110,6 @@ class SubscriptionsTest extends FeatureTestCase
             ->withCoupon(static::$couponId)
             ->create('fake-valid-visa-nonce');
         
-        $user->refresh();
-
         $subscription = $user->subscription('main');
 
         $this->assertTrue($user->subscribed('main'));
@@ -129,8 +138,6 @@ class SubscriptionsTest extends FeatureTestCase
         $user->newSubscription('main', static::$planId)
             ->trialDays(7)
             ->create('fake-valid-visa-nonce');
-
-        $user->refresh();
 
         $subscription = $user->subscription('main');
 
@@ -166,8 +173,6 @@ class SubscriptionsTest extends FeatureTestCase
         $user->newSubscription('main', static::$planId)
             ->trialUntil(Carbon::tomorrow()->hour(3)->minute(15))
             ->create('fake-valid-visa-nonce');
-        
-        $user->refresh();
 
         $subscription = $user->subscription('main');
 
@@ -192,13 +197,79 @@ class SubscriptionsTest extends FeatureTestCase
 
         $user->newSubscription('main', static::$planId)->create('fake-valid-visa-nonce');
 
-        $user->refresh();
-
         $user->applyCoupon(static::$couponId, 'main');
 
         $customer = $user->asBraintreeCustomer();
 
         $this->assertEquals(static::$couponId, $customer->creditCards[0]->subscriptions[0]->discounts[0]->id);
+    }
+
+    public function test_yearly_to_monthly_properly_prorates()
+    {
+        $owner = $this->createCustomer('yearly_to_monthly_properly_prorates');
+
+        // Create Subscription
+        $owner->newSubscription('main', static::$otherYearPlanId)->create('fake-valid-visa-nonce');
+
+        $this->assertEquals(1, count($owner->subscriptions));
+        $this->assertNotNull($owner->subscription('main')->braintree_id);
+
+        // Swap To Monthly
+        $owner->subscription('main')->swap(static::$planId);
+        $owner = $owner->fresh();
+
+        $this->assertEquals(2, count($owner->subscriptions));
+        $this->assertNotNull($owner->subscription('main')->braintree_id);
+        $this->assertEquals(static::$planId, $owner->subscription('main')->braintree_plan);
+
+        $braintreeSubscription = $owner->subscription('main')->asBraintreeSubscription();
+
+        foreach ($braintreeSubscription->discounts as $discount) {
+            if ($discount->id === 'plan-credit') {
+                $this->assertEquals('10.00', $discount->amount);
+                $this->assertEquals(10, $discount->numberOfBillingCycles);
+
+                return;
+            }
+        }
+
+        $this->fail('Proration when switching to yearly was not done properly.');
+    }
+
+    public function test_monthly_to_yearly_properly_prorates()
+    {
+        $owner = $this->createCustomer('monthly_to_yearly_properly_prorates');
+
+        // Create Subscription
+        $owner->newSubscription('main', static::$otherYearPlanId)->create('fake-valid-visa-nonce');
+
+        $this->assertEquals(1, count($owner->subscriptions));
+        $this->assertNotNull($owner->subscription('main')->braintree_id);
+
+        // Swap To Monthly
+        $owner->subscription('main')->swap(static::$planId);
+        $owner = $owner->fresh();
+
+        // Swap Back To Yearly
+        $owner->subscription('main')->swap(static::$otherYearPlanId);
+        $owner = $owner->fresh();
+
+        $this->assertEquals(3, count($owner->subscriptions));
+        $this->assertNotNull($owner->subscription('main')->braintree_id);
+        $this->assertEquals(static::$otherYearPlanId, $owner->subscription('main')->braintree_plan);
+
+        $braintreeSubscription = $owner->subscription('main')->asBraintreeSubscription();
+
+        foreach ($braintreeSubscription->discounts as $discount) {
+            if ($discount->id === 'plan-credit') {
+                $this->assertEquals('100.00', $discount->amount);
+                $this->assertEquals(1, $discount->numberOfBillingCycles);
+
+                return;
+            }
+        }
+
+        $this->fail('Proration when switching to yearly was not done properly.');
     }
 
     public function test_subscription_state_scopes()
@@ -214,8 +285,6 @@ class SubscriptionsTest extends FeatureTestCase
             'trial_ends_at' => null,
             'ends_at' => null,
         ]);
-
-        $user->refresh();
 
         // Subscription is active
         $this->assertTrue($user->subscriptions()->active()->exists());

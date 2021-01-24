@@ -242,16 +242,14 @@ class SubscriptionBuilder
     protected function getBraintreeCustomer($token = null, array $options = []): Customer
     {
         if (! $this->owner->braintree_id) {
-            $customer = $this->owner->createAsBraintreeCustomer($options);
-        } else {
-            $customer = $this->owner->asBraintreeCustomer();
+            return $this->owner->createAsBraintreeCustomer($token, $options);
         }
 
         if ($token) {
             $this->owner->updateDefaultPaymentMethod($token);
         }
 
-        return $customer;
+        return $this->owner->asBraintreeCustomer();
     }
 
     protected function getTrialDuration(int $trialDuration = 0)

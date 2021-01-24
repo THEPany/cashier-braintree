@@ -49,11 +49,12 @@ trait ManagesCustomer
     /**
      * Create a Braintree customer for the given model.
      *
+     * @param  string  $token
      * @param  array  $options
      * @return \Braintree\Customer
      * @throws \Exception
      */
-    public function createAsBraintreeCustomer(array $options = []): Customer
+    public function createAsBraintreeCustomer($token = null, array $options = []): Customer
     {
         if ($this->hasBraintreeId()) {
             throw CustomerAlreadyCreated::exists($this);
@@ -61,6 +62,15 @@ trait ManagesCustomer
 
         if (! array_key_exists('email', $options) && $email = $this->braintreeEmail()) {
             $options['email'] = $email;
+        }
+
+        if ($token) {
+            $options['paymentMethodNonce'] = $token;
+            $options['creditCard'] = [
+                'options' => [
+                    'verifyCard' => true
+                ]
+            ];
         }
 
         // Here we will create the customer instance on Braintree and store the ID of the
@@ -72,9 +82,21 @@ trait ManagesCustomer
             throw InvalidCustomer::notYetCreated($response->message);
         }
 
-        $this->forceFill([
-            'braintree_id' => $response->customer->id,
-        ])->save();
+        $this->braintree_id = $response->customer->id;
+
+        $paymentMethod = $this->defaultPaymentMethod();
+
+        $paypalAccount = $paymentMethod instanceof PayPalAccount;
+
+        $this->forceFill(
+            array_merge([
+                'braintree_id' => $this->braintree_id
+            ], is_null($paymentMethod) ? [] : [
+                'paypal_email' => $paypalAccount ? $paymentMethod->email : null,
+                'card_brand' => ! $paypalAccount ? $paymentMethod->cardType : null,
+                'card_last_four' => ! $paypalAccount ? $paymentMethod->last4 : null,
+            ])
+        )->save();
 
         return $response->customer;
     }

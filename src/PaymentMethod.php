@@ -2,7 +2,7 @@
 
 namespace Laravel\Braintree;
 
-use Laravel\Cashier\Exceptions\InvalidPaymentMethod;
+use Laravel\Braintree\Exceptions\InvalidPaymentMethod;
 
 class PaymentMethod
 {
